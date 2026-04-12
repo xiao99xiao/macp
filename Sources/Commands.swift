@@ -544,12 +544,16 @@ struct TypeText: ParsableCommand {
     @Argument(help: "Text to type")
     var text: String
 
-    @Option(name: .shortAndLong, help: "Target app PID (auto-activates before typing)")
+    @Option(name: .shortAndLong, help: "Target app PID — delivers events via AX API (goes through NSApp event loop)")
     var pid: Int32?
 
     func run() {
-        if let pid = pid { AccessibilityService.shared.ensureForeground(pid: pid) }
-        AccessibilityService.shared.typeText(text)
+        if let pid = pid {
+            AccessibilityService.shared.ensureForeground(pid: pid)
+            AccessibilityService.shared.typeTextToApp(pid: pid, text: text)
+        } else {
+            AccessibilityService.shared.typeText(text)
+        }
         print("Typed \(text.count) characters")
     }
 }
@@ -575,19 +579,22 @@ struct KeyPress: ParsableCommand {
     @Flag(name: .customLong("ctrl"), help: "Control modifier")
     var control: Bool = false
 
-    @Option(name: .shortAndLong, help: "Target app PID (auto-activates before key press)")
+    @Option(name: .shortAndLong, help: "Target app PID — delivers events via AX API (goes through NSApp event loop)")
     var pid: Int32?
 
     func run() {
-        if let pid = pid { AccessibilityService.shared.ensureForeground(pid: pid) }
-
         var flags = CGEventFlags()
         if command { flags.insert(.maskCommand) }
         if shift { flags.insert(.maskShift) }
         if option { flags.insert(.maskAlternate) }
         if control { flags.insert(.maskControl) }
 
-        AccessibilityService.shared.keyPress(keyCode: keyCode, flags: flags)
+        if let pid = pid {
+            AccessibilityService.shared.ensureForeground(pid: pid)
+            AccessibilityService.shared.keyPressToApp(pid: pid, keyCode: CGKeyCode(keyCode), flags: flags)
+        } else {
+            AccessibilityService.shared.keyPress(keyCode: CGKeyCode(keyCode), flags: flags)
+        }
         print("Key \(keyCode) sent")
     }
 }

@@ -574,6 +574,47 @@ final class AccessibilityService {
         }
     }
 
+    /// Post keyboard event via cgAnnotatedSessionEventTap with PID targeting.
+    /// Events go through the session-level event pipeline → NSApp sendEvent: →
+    /// NSEvent.addLocalMonitorForEvents will see them.
+    func keyPressToApp(pid: pid_t, keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) {
+            keyDown.flags = flags
+            keyDown.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
+            keyDown.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
+            keyUp.flags = flags
+            keyUp.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
+            keyUp.post(tap: .cgAnnotatedSessionEventTap)
+        }
+    }
+
+    /// Type text into a specific app via session-level events with PID targeting.
+    func typeTextToApp(pid: pid_t, text: String) {
+        for char in text {
+            let str = String(char)
+            let source = CGEventSource(stateID: .hidSystemState)
+            if let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) {
+                let nsStr = str as NSString
+                let uniChars = [UniChar](unsafeUninitializedCapacity: Int(nsStr.length)) { buffer, count in
+                    nsStr.getCharacters(buffer.baseAddress!)
+                    count = Int(nsStr.length)
+                }
+                event.keyboardSetUnicodeString(stringLength: uniChars.count, unicodeString: uniChars)
+                event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
+                event.post(tap: .cgAnnotatedSessionEventTap)
+
+                if let upEvent = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
+                    upEvent.keyboardSetUnicodeString(stringLength: uniChars.count, unicodeString: uniChars)
+                    upEvent.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
+                    upEvent.post(tap: .cgAnnotatedSessionEventTap)
+                }
+            }
+        }
+    }
+
     // MARK: - Attribute Helpers
 
     private func getStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
