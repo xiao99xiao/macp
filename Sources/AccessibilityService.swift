@@ -574,45 +574,62 @@ final class AccessibilityService {
         }
     }
 
-    /// Post keyboard event via cgAnnotatedSessionEventTap with PID targeting.
-    /// Events go through the session-level event pipeline → NSApp sendEvent: →
-    /// NSEvent.addLocalMonitorForEvents will see them.
+    /// Send key press to a specific app via AppleScript (System Events).
+    /// This goes through the full macOS event pipeline, so NSEvent.addLocalMonitorForEvents
+    /// will correctly receive these events — unlike CGEventPost which bypasses local monitors.
     func keyPressToApp(pid: pid_t, keyCode: CGKeyCode, flags: CGEventFlags = []) {
-        let source = CGEventSource(stateID: .hidSystemState)
-        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) {
-            keyDown.flags = flags
-            keyDown.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
-            keyDown.post(tap: .cgAnnotatedSessionEventTap)
-        }
-        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
-            keyUp.flags = flags
-            keyUp.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
-            keyUp.post(tap: .cgAnnotatedSessionEventTap)
-        }
+        guard let appName = NSRunningApplication(processIdentifier: pid)?.localizedName else { return }
+
+        var modifiers: [String] = []
+        if flags.contains(.maskCommand)   { modifiers.append("command down") }
+        if flags.contains(.maskShift)     { modifiers.append("shift down") }
+        if flags.contains(.maskAlternate) { modifiers.append("option down") }
+        if flags.contains(.maskControl)   { modifiers.append("control down") }
+
+        let usingClause = modifiers.isEmpty ? "" : " using {\(modifiers.joined(separator: ", "))}"
+        let script = """
+        tell application "System Events"
+            tell process "\(appName)"
+                set frontmost to true
+            end tell
+            key code \(keyCode)\(usingClause)
+        end tell
+        """
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        proc.arguments = ["-e", script]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
     }
 
-    /// Type text into a specific app via session-level events with PID targeting.
+    /// Type text into a specific app via AppleScript (System Events).
     func typeTextToApp(pid: pid_t, text: String) {
-        for char in text {
-            let str = String(char)
-            let source = CGEventSource(stateID: .hidSystemState)
-            if let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) {
-                let nsStr = str as NSString
-                let uniChars = [UniChar](unsafeUninitializedCapacity: Int(nsStr.length)) { buffer, count in
-                    nsStr.getCharacters(buffer.baseAddress!)
-                    count = Int(nsStr.length)
-                }
-                event.keyboardSetUnicodeString(stringLength: uniChars.count, unicodeString: uniChars)
-                event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
-                event.post(tap: .cgAnnotatedSessionEventTap)
+        guard let appName = NSRunningApplication(processIdentifier: pid)?.localizedName else { return }
 
-                if let upEvent = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
-                    upEvent.keyboardSetUnicodeString(stringLength: uniChars.count, unicodeString: uniChars)
-                    upEvent.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
-                    upEvent.post(tap: .cgAnnotatedSessionEventTap)
-                }
-            }
-        }
+        // Escape backslashes and double quotes for AppleScript string
+        let escaped = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+
+        let script = """
+        tell application "System Events"
+            tell process "\(appName)"
+                set frontmost to true
+            end tell
+            keystroke "\(escaped)"
+        end tell
+        """
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        proc.arguments = ["-e", script]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
     }
 
     // MARK: - Attribute Helpers
