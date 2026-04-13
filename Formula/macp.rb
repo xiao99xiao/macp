@@ -1,7 +1,7 @@
 class Macp < Formula
   desc "Give Claude Code the ability to operate and debug macOS apps"
   homepage "https://github.com/xiao99xiao/macp"
-  url "https://github.com/xiao99xiao/macp.git", tag: "0.1.0"
+  url "https://github.com/xiao99xiao/macp.git", tag: "0.1.1"
   license "MIT"
   head "https://github.com/xiao99xiao/macp.git", branch: "main"
 
